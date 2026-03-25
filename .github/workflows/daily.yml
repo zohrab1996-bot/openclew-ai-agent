@@ -1,30 +1,21 @@
-name: OpenClew Daily Report
-
+ name: OpenClew Daily Report
 on:
   schedule:
-    # UTC 04:00 = Bakı vaxtı ilə tam saat 08:00 deməkdir
     - cron: '0 4 * * *'
-  workflow_dispatch: # Bu sətir sənə istədiyin vaxt "Run workflow" düyməsi ilə testi başlatmağa imkan verir
+  workflow_dispatch:
 
 jobs:
   report:
     runs-on: ubuntu-latest
-
     steps:
-      - name: 1. Kodu GitHub-dan götür
-        uses: actions/checkout@v3
-
-      - name: 2. Node.js mühitini quraşdır
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
         with:
           node-version: '20'
-
-      - name: 3. Lazımi kitabxanaları yüklə
+      - name: Kitabxanaları Quraşdır
         run: npm install
-
-      - name: 4. AI Agenti işə sal (index.mjs)
+      - name: Agent-i Başlat
         run: node index.mjs
         env:
-          # Bu hissə sənin "Secrets" bölməsindəki açarları koda bağlayır
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
