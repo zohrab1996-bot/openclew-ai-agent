@@ -1,26 +1,25 @@
- name: OpenClew Daily Report
-
+name: OpenClew Daily Report
 on:
   schedule:
-    - cron: '0 4 * * *' # UTC 04:00 = Bakı vaxtı ilə 08:00
-  workflow_dispatch: # Bu sətir "Run workflow" düyməsini aktiv edir
+    - cron: '0 4 * * *'
+  workflow_dispatch:
 
 jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Kodu kopyala
+      - name: Kodu kopyala
         uses: actions/checkout@v3
 
-      - name: 2. Node.js mühitini quraşdır
+      - name: Node.js quraşdır
         uses: actions/setup-node@v3
         with:
           node-version: '20'
 
-      - name: 3. Kitabxanaları yüklə (Dependencies)
+      - name: Kitabxanaları yüklə
         run: npm install
 
-      - name: 4. Agent-i işə sal (index.mjs)
+      - name: Agent-i işə sal
         run: node index.mjs
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
