@@ -3,132 +3,272 @@ import Groq from 'groq-sdk';
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
+import path from 'path';
+import { parseStringPromise } from 'xml2js';
 
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
 const CONFIG = {
     API_KEY: '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',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
     IDENTITY: "OpenClew AI Executive Strategist v5.1",
-    // Daha stabil font linkləri (Google Fonts rəsmi repozitoriyası)
-    FONT_URL: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/v2/Roboto-Regular.ttf'
+    FONT_CACHE: path.resolve('./Roboto.ttf'),
+    FONT_URL: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/v2/Roboto-Regular.ttf',
+    PDF_PATH: path.resolve('./Strategic_Intelligence.pdf'),
+    NEWS_COUNT: 4, // neçə xəbər analiz edilsin
 };
+
+const NEWS_SOURCES = [
+    'https://openai.com/news/rss.xml',
+    'https://deepmind.google/blog/rss.xml',
+    'https://www.technologyreview.com/feed/',
+    'https://techcrunch.com/category/artificial-intelligence/feed/',
+    'https://venturebeat.com/category/ai/feed/',
+];
 
 const groq = new Groq({ apiKey: CONFIG.API_KEY });
 
-async function getIntelligence() {
-    const sources = [
-        'https://openai.com/news/rss.xml',
-        'https://deepmind.google/blog/rss.xml',
-        'https://www.technologyreview.com/feed/',
-        'https://techcrunch.com/category/artificial-intelligence/feed/'
-    ];
-    const url = sources[Math.floor(Math.random() * sources.length)];
-    const res = await axios.get(url, { timeout: 10000 });
-    const entries = res.data.split('<item>').slice(1, 4);
-    
-    return entries.map(e => ({
-        title: (e.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/) || ["","N/A"])[1].trim(),
-        link: (e.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/) || ["","#"])[1].trim()
-    }));
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function log(icon, msg) {
+    console.log(`${icon} [${new Date().toISOString()}] ${msg}`);
 }
 
-async function analyze(news) {
-    const prompt = `Sən Azərbaycanın rəqəmsal transformasiya üzrə ən yüksək səviyyəli strateqisən. 
-    Xəbər: "${news.title}"
-    Tələblər:
-    1. ANALİZ: Bu texnologiya qlobal bazarda nəyi dəyişir? (Qısa və konkret)
-    2. AZƏRBAYCAN PERSPEKTİVİ: Ölkəmizdə rəqəmsal xidmətlər və ya innovasiya mərkəzləri üçün bu nə deməkdir? 
-    3. TÖVSİYƏ: Nazirlik və ya rəhbər şəxslər üçün 1 cümləlik strateji qərar təklifi.
-    Dil: Müasir Azərbaycan işgüzar dili. "ə, ö, ğ, ç, ş, ı, İ" hərflərindən qüsursuz istifadə et.`;
-
-    const response = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.2
-    });
-    return response.choices[0].message.content;
-}
-
-async function createProfessionalPDF(data) {
-    let fontPath = 'Roboto.ttf';
-    try {
-        const res = await axios.get(CONFIG.FONT_URL, { responseType: 'arraybuffer', timeout: 10000 });
-        fs.writeFileSync(fontPath, res.data);
-    } catch (e) {
-        console.warn("⚠️ Font yüklənmədi, standart fonta keçilir...");
-        fontPath = 'Helvetica'; // Fallback
+async function retry(fn, attempts = 3, delay = 1500) {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await fn();
+        } catch (err) {
+            if (i === attempts - 1) throw err;
+            log('⏳', `Yenidən cəhd (${i + 1}/${attempts}): ${err.message}`);
+            await new Promise(r => setTimeout(r, delay));
+        }
     }
+}
 
-    return new Promise((resolve) => {
-        const doc = new PDFDocument({ margin: 45, size: 'A4' });
-        const path = 'Strategic_Intelligence.pdf';
-        const stream = fs.createWriteStream(path);
+// ─── FONT ─────────────────────────────────────────────────────────────────────
+async function ensureFont() {
+    if (fs.existsSync(CONFIG.FONT_CACHE)) {
+        log('✅', 'Font cache-dən götürüldü.');
+        return CONFIG.FONT_CACHE;
+    }
+    try {
+        log('⬇️', 'Font yüklənir...');
+        const res = await axios.get(CONFIG.FONT_URL, { responseType: 'arraybuffer', timeout: 12000 });
+        fs.writeFileSync(CONFIG.FONT_CACHE, res.data);
+        log('✅', 'Font uğurla yükləndi.');
+        return CONFIG.FONT_CACHE;
+    } catch {
+        log('⚠️', 'Font yüklənmədi, Helvetica istifadə edilir.');
+        return null;
+    }
+}
+
+// ─── NEWS FETCHER ─────────────────────────────────────────────────────────────
+async function fetchFromSource(url) {
+    const res = await axios.get(url, {
+        timeout: 12000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OpenClewBot/1.0)' }
+    });
+    const parsed = await parseStringPromise(res.data, { explicitArray: false });
+    const items = parsed?.rss?.channel?.item || parsed?.feed?.entry || [];
+    const list = Array.isArray(items) ? items : [items];
+
+    return list.slice(0, CONFIG.NEWS_COUNT).map(item => ({
+        title: item.title?._ || item.title || 'Başlıq yoxdur',
+        link:  item.link?.href || item.link || '#',
+        source: url,
+    })).filter(n => n.title !== 'Başlıq yoxdur');
+}
+
+async function getIntelligence() {
+    // Bütün mənbələri paralel yoxla, birincisi uğurlu olanı qəbul et
+    const shuffled = [...NEWS_SOURCES].sort(() => Math.random() - 0.5);
+
+    for (const url of shuffled) {
+        try {
+            log('📡', `Mənbə yoxlanır: ${url}`);
+            const items = await retry(() => fetchFromSource(url));
+            if (items.length > 0) {
+                log('✅', `${items.length} xəbər tapıldı: ${url}`);
+                return items;
+            }
+        } catch (err) {
+            log('⚠️', `Mənbə uğursuz: ${url} → ${err.message}`);
+        }
+    }
+    throw new Error('Heç bir xəbər mənbəyindən məlumat alınmadı.');
+}
+
+// ─── ANALYZER ─────────────────────────────────────────────────────────────────
+async function analyze(news) {
+    const prompt = `Sən Azərbaycanın rəqəmsal transformasiya üzrə ən yüksək səviyyəli strateqisən.
+Xəbər: "${news.title}"
+
+Aşağıdakı strukturda cavab ver:
+1. ANALİZ: Bu texnologiya qlobal bazarda nəyi dəyişir? (2-3 cümlə, konkret)
+2. AZƏRBAYCAN PERSPEKTİVİ: Ölkəmizdə rəqəmsal xidmətlər və ya innovasiya mərkəzləri üçün bu nə deməkdir?
+3. STRATEJİ TÖVSİYƏ: Nazirlik və ya rəhbər şəxslər üçün 1 cümləlik konkret qərar təklifi.
+
+Dil: Müasir Azərbaycan işgüzar dili. "ə, ö, ğ, ç, ş, ı, İ" hərflərindən qüsursuz istifadə et.`;
+
+    const response = await retry(() =>
+        groq.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.2,
+            max_tokens: 600,
+        })
+    );
+    return response.choices[0].message.content.trim();
+}
+
+async function analyzeAll(newsList) {
+    // Paralel analiz (rate limit-ə görə kiçik gecikmə ilə)
+    const results = [];
+    for (const [i, n] of newsList.entries()) {
+        log('🧠', `Analiz edilir (${i + 1}/${newsList.length}): ${n.title}`);
+        const analysis = await retry(() => analyze(n));
+        results.push({ ...n, analysis });
+        if (i < newsList.length - 1) await new Promise(r => setTimeout(r, 500));
+    }
+    return results;
+}
+
+// ─── PDF ──────────────────────────────────────────────────────────────────────
+async function createPDF(data, fontPath) {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
+        stream.on('error', reject);
 
-        // Header Design
-        doc.rect(0, 0, 612, 85).fill('#002B5C'); 
-        doc.fillColor('#FFFFFF').fontSize(22);
-        
-        // Font tətbiqi (əgər yüklənibsə)
-        try { doc.font(fontPath); } catch (f) { doc.font('Helvetica-Bold'); }
-        
-        doc.text('STRATEJİ İNSAYT HESABATI', 45, 30);
-        doc.fontSize(9).text(`Tarix: ${new Date().toLocaleDateString('az-AZ')} | ${CONFIG.IDENTITY}`, 45, 60);
-        
+        const useFont  = (bold = false) => {
+            if (fontPath) {
+                try { doc.font(fontPath); return; } catch {}
+            }
+            doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
+        };
+
+        // ── Header ──
+        doc.rect(0, 0, 612, 90).fill('#001F4E');
+        doc.fillColor('#FFFFFF');
+        useFont(true);
+        doc.fontSize(20).text('STRATEJİ İNSAYT HESABATI', 50, 28);
+        doc.fontSize(9).text(
+            `Tarix: ${new Date().toLocaleDateString('az-AZ', { day:'2-digit', month:'long', year:'numeric' })}   |   ${CONFIG.IDENTITY}`,
+            50, 60
+        );
+
+        // ── Separator ──
         doc.moveDown(4.5);
+        doc.moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#C8A84B').lineWidth(1.5).stroke();
+        doc.moveDown(1.5);
 
+        // ── Items ──
         data.forEach((item, i) => {
-            doc.fillColor('#002B5C').fontSize(14);
-            try { doc.font(fontPath); } catch (f) { doc.font('Helvetica-Bold'); }
-            doc.text(`${i+1}. ${item.title}`);
-            
-            doc.fontSize(8).fillColor('#666666').text(`Mənbə: ${item.link}`, { underline: true });
-            doc.moveDown(0.7);
-            
-            doc.fillColor('#222222').fontSize(11);
-            try { doc.font(fontPath); } catch (f) { doc.font('Helvetica'); }
-            doc.text(item.analysis, { align: 'justify', lineGap: 4 });
-            
-            doc.moveDown(2);
-            doc.moveTo(45, doc.y).lineTo(550, doc.y).strokeColor('#DDDDDD').lineWidth(0.5).stroke();
+            // Yeni səhifəyə keçid lazım olduqda
+            if (doc.y > 700) doc.addPage();
+
+            useFont(true);
+            doc.fillColor('#001F4E').fontSize(13).text(`${i + 1}. ${item.title}`, { lineGap: 2 });
+
+            doc.fontSize(8).fillColor('#888888');
+            useFont(false);
+            doc.text(`Mənbə: ${item.link}`, { underline: true, lineGap: 2 });
+
+            doc.moveDown(0.6);
+
+            doc.fillColor('#1A1A1A').fontSize(10.5);
+            useFont(false);
+            doc.text(item.analysis, { align: 'justify', lineGap: 5 });
+
+            doc.moveDown(1.8);
+            doc.moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#E0E0E0').lineWidth(0.5).stroke();
             doc.moveDown(1.5);
         });
 
-        doc.fontSize(8).fillColor('#888888').text('MDDT - Rəqəmsal Transformasiya Hesabatı', 45, 785, { align: 'center' });
+        // ── Footer ──
+        const footerY = 820 - 30;
+        doc.rect(0, footerY - 8, 612, 30).fill('#001F4E');
+        doc.fillColor('#AAAAAA').fontSize(7.5);
+        useFont(false);
+        doc.text('MDDT — Rəqəmsal Transformasiya Hesabatı  |  Gizli sənəd', 50, footerY, { align: 'center', width: 512 });
+
         doc.end();
-        stream.on('finish', () => resolve(path));
+        stream.on('finish', () => {
+            log('📄', `PDF yaradıldı: ${CONFIG.PDF_PATH}`);
+            resolve(CONFIG.PDF_PATH);
+        });
     });
 }
 
-async function main() {
-    console.log("🚀 Senior Agent Mission Started...");
-    try {
-        const news = await getIntelligence();
-        const results = [];
-        for (const n of news) {
-            console.log(`🧠 Processing: ${n.title}`);
-            const analysis = await analyze(n);
-            results.push({ ...n, analysis });
-        }
-        
-        const pdf = await createProfessionalPDF(results);
-        
-        let transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS }
-        });
+// ─── EMAIL ────────────────────────────────────────────────────────────────────
+async function sendEmail(pdfPath, itemCount) {
+    if (!CONFIG.EMAIL_PASS) throw new Error('EMAIL_PASS mühit dəyişəni təyin edilməyib.');
 
-        await transporter.sendMail({
-            from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
-            to: CONFIG.RECIPIENT,
-            subject: `💼 STRATEJİ ANALİZ: ${new Date().toLocaleDateString('az-AZ')}`,
-            text: `Hörmətli Zöhrab bəy, günün rəqəmsal transformasiya analizi əlavədədir.`,
-            attachments: [{ filename: 'Intelligence_Report.pdf', path: pdf }]
-        });
-        console.log("🏁 Mission Successful.");
+    const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS },
+    });
+
+    const dateStr = new Date().toLocaleDateString('az-AZ', { day: '2-digit', month: 'long', year: 'numeric' });
+
+    await retry(() => transporter.sendMail({
+        from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
+        to: CONFIG.RECIPIENT,
+        subject: `💼 STRATEJİ ANALİZ — ${dateStr}`,
+        html: `
+            <p>Hörmətli Zöhrab bəy,</p>
+            <p>Bu günün <strong>${itemCount} ən vacib AI xəbərinin</strong> strateji analizi əlavə edilmiş PDF-də təqdim olunur.</p>
+            <p>Hörmətlə,<br/><em>${CONFIG.IDENTITY}</em></p>
+        `,
+        attachments: [{ filename: `Intelligence_Report_${Date.now()}.pdf`, path: pdfPath }],
+    }));
+
+    log('📧', 'Email uğurla göndərildi.');
+}
+
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
+async function main() {
+    log('🚀', 'Senior Agent Mission Started...');
+    let pdfPath = null;
+
+    try {
+        const font    = await ensureFont();
+        const news    = await getIntelligence();
+        const results = await analyzeAll(news);
+        pdfPath = await createPDF(results, font);
+        await sendEmail(pdfPath, results.length);
+        log('🏁', 'Mission Successful.');
     } catch (err) {
-        console.error("❌ CRITICAL ERROR:", err.message);
+        log('❌', `CRITICAL ERROR: ${err.message}`);
+
+        // Xəta olduqda email ilə bildiriş göndər
+        if (CONFIG.EMAIL_PASS) {
+            try {
+                const transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS },
+                });
+                await transporter.sendMail({
+                    from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
+                    to: CONFIG.RECIPIENT,
+                    subject: '🚨 Agent Xəta Bildirişi',
+                    text: `Agent xəta ilə dayandı:\n\n${err.stack || err.message}`,
+                });
+                log('📧', 'Xəta bildirişi göndərildi.');
+            } catch (mailErr) {
+                log('⚠️', `Xəta emaili göndərilmədi: ${mailErr.message}`);
+            }
+        }
+
         process.exit(1);
+    } finally {
+        // Müvəqqəti faylları sil (font cache saxla)
+        if (pdfPath && fs.existsSync(pdfPath)) {
+            fs.unlinkSync(pdfPath);
+            log('🗑️', 'Müvəqqəti PDF silindi.');
+        }
     }
 }
 
