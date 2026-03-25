@@ -4,23 +4,23 @@ import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 
-// --- [DİQQƏT: API VƏ EMAİL] ---
-const API_KEY = process.env.GROQ_API_KEY || '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';
-const EMAIL_USER = 'zohrab.rza@gmail.com';
-const EMAIL_PASS = process.env.EMAIL_PASS; // Bunu GitHub Secrets-dən götürəcək
+// --- [SƏNİN TƏZƏ VƏ YOXLANILMIŞ AÇARIN] ---
+const API_KEY = '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'; 
+const USER_EMAIL = 'zohrab.rza@gmail.com';
+const EMAIL_PASS = process.env.EMAIL_PASS; 
 
 const groq = new Groq({ apiKey: API_KEY });
 
-async function start() {
-    console.log("🚀 Agent oyanır...");
+async function startMission() {
+    console.log("🚀 OpenClew Agent təzə açarla işə düşür...");
     try {
         const res = await axios.get('https://rss.arxiv.org/rss/cs.AI');
-        const items = res.data.split('<item>').slice(1, 4);
+        const items = res.data.split('<item>').slice(1, 4); 
         let results = [];
 
         for (const item of items) {
-            const title = (item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/) || [])[1];
-            const link = (item.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/) || [])[1];
+            const titleMatch = item.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/);
+            const title = titleMatch ? titleMatch[1].trim() : "Mövzu tapılmadı";
 
             console.log(`🤖 AI Analiz edir: ${title.substring(0, 30)}...`);
             const aiRes = await groq.chat.completions.create({
@@ -30,7 +30,7 @@ async function start() {
                     { role: 'user', content: `Analiz et: "${title}"` }
                 ]
             });
-            results.push({ title, url: link, summary: aiRes.choices[0].message.content });
+            results.push({ title, summary: aiRes.choices[0].message.content });
         }
 
         const doc = new PDFDocument();
@@ -39,29 +39,28 @@ async function start() {
         doc.pipe(stream);
         doc.fontSize(20).text('OpenClew Strateji Hesabat', { align: 'center' });
         results.forEach(r => {
-            doc.moveDown().fontSize(12).fillColor('blue').text(r.title, { link: r.url });
+            doc.moveDown().fontSize(12).fillColor('blue').text(r.title);
             doc.fontSize(10).fillColor('black').text(r.summary);
         });
         doc.end();
 
         stream.on('finish', async () => {
-            console.log("📧 Email göndərilir...");
-            let transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: { user: EMAIL_USER, pass: EMAIL_PASS }
-            });
-
+            if (!EMAIL_PASS) {
+                console.log("⚠️ PDF yarandı, amma EMAIL_PASS yoxdur.");
+                return;
+            }
+            let transporter = nodemailer.createTransport({ service: 'gmail', auth: { user: USER_EMAIL, pass: EMAIL_PASS } });
             await transporter.sendMail({
-                from: EMAIL_USER,
-                to: EMAIL_USER,
+                from: USER_EMAIL,
+                to: USER_EMAIL,
                 subject: `🚀 OpenClew - ${new Date().toLocaleDateString('az-AZ')}`,
                 attachments: [{ filename: 'Report.pdf', path: pdfPath }]
             });
-            console.log("✅ BİTDİ!");
+            console.log("✅ MİSSİYA UĞURLA TAMAMLANDI!");
         });
-    } catch (e) {
-        console.error("❌ XƏTA:", e.message);
+    } catch (error) {
+        console.error("❌ KRİTİK XƏTA:", error.message);
         process.exit(1);
     }
 }
-start();
+startMission();
