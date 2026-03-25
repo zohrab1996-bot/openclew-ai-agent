@@ -1,8 +1,8 @@
  name: OpenClew Daily Report
 on:
+  workflow_dispatch:
   schedule:
     - cron: '0 4 * * *'
-  workflow_dispatch:
 
 jobs:
   report:
@@ -12,10 +12,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Kitabxanaları quraşdır
-        run: npm install
-      - name: Agent-i işə sal
-        run: node index.mjs
+      - run: npm install
+      - run: node index.mjs
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
