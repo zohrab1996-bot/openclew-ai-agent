@@ -2,10 +2,9 @@
   "name": "openclew-ai-agent",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.mjs",
   "dependencies": {
     "axios": "^1.6.0",
-    "groq-sdk": "^0.3.0",
+    "groq-sdk": "^0.3.3",
     "nodemailer": "^6.9.0",
     "pdfkit": "^0.14.0"
   }
