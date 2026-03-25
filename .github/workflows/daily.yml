@@ -1,25 +1,25 @@
-name: OpenClew Daily Report
+ name: OpenClew Daily Report
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 4 * * *' # Bakı vaxtı ilə 08:00
   workflow_dispatch:
 
 jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - name: Kodu kopyala
-        uses: actions/checkout@v3
+      - name: 1. Kodu kopyala
+        uses: actions/checkout@v4
 
-      - name: Node.js quraşdır
-        uses: actions/setup-node@v3
+      - name: 2. Node.js 24 quraşdır
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
-      - name: Kitabxanaları yüklə
+      - name: 3. Kitabxanaları yüklə
         run: npm install
 
-      - name: Agent-i işə sal
+      - name: 4. Agent-i işə sal
         run: node index.mjs
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
