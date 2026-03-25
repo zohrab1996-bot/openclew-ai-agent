@@ -1,4 +1,4 @@
- name: OpenClew Daily Report
+name: OpenClew Daily Report
 on:
   workflow_dispatch:
   schedule:
@@ -8,12 +8,19 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Kodu kopyala
+        uses: actions/checkout@v4
+
+      - name: Node quraşdır
+        uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: npm install
-      - run: node index.mjs
+
+      - name: Kitabxanaları yüklə
+        run: npm install
+
+      - name: Agent-i işə sal
+        run: node index.mjs
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
