@@ -4,7 +4,6 @@ import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
-import { parseStringPromise } from 'xml2js';
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const CONFIG = {
@@ -15,7 +14,7 @@ const CONFIG = {
     FONT_CACHE: path.resolve('./Roboto.ttf'),
     FONT_URL: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/v2/Roboto-Regular.ttf',
     PDF_PATH: path.resolve('./Strategic_Intelligence.pdf'),
-    NEWS_COUNT: 4, // neçə xəbər analiz edilsin
+    NEWS_COUNT: 4,
 };
 
 const NEWS_SOURCES = [
@@ -45,6 +44,39 @@ async function retry(fn, attempts = 3, delay = 1500) {
     }
 }
 
+// ─── RSS PARSER (xarici asılılıq yoxdur) ─────────────────────────────────────
+function extractCdata(str) {
+    if (!str) return '';
+    return str.replace(/<!\[CDATA\[([\s\S]*?)]]>/g, '$1').trim();
+}
+
+function parseRSS(xml) {
+    const items = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+
+    const blocks = [...(xml.matchAll(itemRegex) || []), ...(xml.matchAll(entryRegex) || [])];
+
+    for (const block of blocks) {
+        const content = block[1];
+
+        // Title
+        const titleMatch = content.match(/<title[^>]*>([\s\S]*?)<\/title>/);
+        const title = extractCdata(titleMatch?.[1] || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+
+        // Link — RSS <link> vs Atom <link href="...">
+        const linkHrefMatch = content.match(/<link[^>]+href=["']([^"']+)["']/);
+        const linkTextMatch = content.match(/<link[^>]*>([\s\S]*?)<\/link>/);
+        const link = linkHrefMatch?.[1] || extractCdata(linkTextMatch?.[1] || '') || '#';
+
+        if (title && title.length > 3) {
+            items.push({ title, link });
+        }
+    }
+
+    return items.slice(0, CONFIG.NEWS_COUNT);
+}
+
 // ─── FONT ─────────────────────────────────────────────────────────────────────
 async function ensureFont() {
     if (fs.existsSync(CONFIG.FONT_CACHE)) {
@@ -67,31 +99,21 @@ async function ensureFont() {
 async function fetchFromSource(url) {
     const res = await axios.get(url, {
         timeout: 12000,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OpenClewBot/1.0)' }
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OpenClewBot/1.0)' },
     });
-    const parsed = await parseStringPromise(res.data, { explicitArray: false });
-    const items = parsed?.rss?.channel?.item || parsed?.feed?.entry || [];
-    const list = Array.isArray(items) ? items : [items];
-
-    return list.slice(0, CONFIG.NEWS_COUNT).map(item => ({
-        title: item.title?._ || item.title || 'Başlıq yoxdur',
-        link:  item.link?.href || item.link || '#',
-        source: url,
-    })).filter(n => n.title !== 'Başlıq yoxdur');
+    const items = parseRSS(res.data);
+    if (items.length === 0) throw new Error('Bu mənbədən xəbər tapılmadı.');
+    return items;
 }
 
 async function getIntelligence() {
-    // Bütün mənbələri paralel yoxla, birincisi uğurlu olanı qəbul et
     const shuffled = [...NEWS_SOURCES].sort(() => Math.random() - 0.5);
-
     for (const url of shuffled) {
         try {
             log('📡', `Mənbə yoxlanır: ${url}`);
             const items = await retry(() => fetchFromSource(url));
-            if (items.length > 0) {
-                log('✅', `${items.length} xəbər tapıldı: ${url}`);
-                return items;
-            }
+            log('✅', `${items.length} xəbər tapıldı: ${url}`);
+            return items;
         } catch (err) {
             log('⚠️', `Mənbə uğursuz: ${url} → ${err.message}`);
         }
@@ -123,7 +145,6 @@ Dil: Müasir Azərbaycan işgüzar dili. "ə, ö, ğ, ç, ş, ı, İ" hərfləri
 }
 
 async function analyzeAll(newsList) {
-    // Paralel analiz (rate limit-ə görə kiçik gecikmə ilə)
     const results = [];
     for (const [i, n] of newsList.entries()) {
         log('🧠', `Analiz edilir (${i + 1}/${newsList.length}): ${n.title}`);
@@ -142,31 +163,29 @@ async function createPDF(data, fontPath) {
         doc.pipe(stream);
         stream.on('error', reject);
 
-        const useFont  = (bold = false) => {
+        const useFont = (bold = false) => {
             if (fontPath) {
                 try { doc.font(fontPath); return; } catch {}
             }
             doc.font(bold ? 'Helvetica-Bold' : 'Helvetica');
         };
 
-        // ── Header ──
+        // Header
         doc.rect(0, 0, 612, 90).fill('#001F4E');
         doc.fillColor('#FFFFFF');
         useFont(true);
         doc.fontSize(20).text('STRATEJİ İNSAYT HESABATI', 50, 28);
         doc.fontSize(9).text(
-            `Tarix: ${new Date().toLocaleDateString('az-AZ', { day:'2-digit', month:'long', year:'numeric' })}   |   ${CONFIG.IDENTITY}`,
+            `Tarix: ${new Date().toLocaleDateString('az-AZ', { day: '2-digit', month: 'long', year: 'numeric' })}   |   ${CONFIG.IDENTITY}`,
             50, 60
         );
 
-        // ── Separator ──
         doc.moveDown(4.5);
         doc.moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#C8A84B').lineWidth(1.5).stroke();
         doc.moveDown(1.5);
 
-        // ── Items ──
+        // Items
         data.forEach((item, i) => {
-            // Yeni səhifəyə keçid lazım olduqda
             if (doc.y > 700) doc.addPage();
 
             useFont(true);
@@ -177,7 +196,6 @@ async function createPDF(data, fontPath) {
             doc.text(`Mənbə: ${item.link}`, { underline: true, lineGap: 2 });
 
             doc.moveDown(0.6);
-
             doc.fillColor('#1A1A1A').fontSize(10.5);
             useFont(false);
             doc.text(item.analysis, { align: 'justify', lineGap: 5 });
@@ -187,12 +205,11 @@ async function createPDF(data, fontPath) {
             doc.moveDown(1.5);
         });
 
-        // ── Footer ──
-        const footerY = 820 - 30;
-        doc.rect(0, footerY - 8, 612, 30).fill('#001F4E');
+        // Footer
+        doc.rect(0, 812, 612, 30).fill('#001F4E');
         doc.fillColor('#AAAAAA').fontSize(7.5);
         useFont(false);
-        doc.text('MDDT — Rəqəmsal Transformasiya Hesabatı  |  Gizli sənəd', 50, footerY, { align: 'center', width: 512 });
+        doc.text('MDDT — Rəqəmsal Transformasiya Hesabatı  |  Gizli sənəd', 50, 818, { align: 'center', width: 512 });
 
         doc.end();
         stream.on('finish', () => {
@@ -243,7 +260,6 @@ async function main() {
     } catch (err) {
         log('❌', `CRITICAL ERROR: ${err.message}`);
 
-        // Xəta olduqda email ilə bildiriş göndər
         if (CONFIG.EMAIL_PASS) {
             try {
                 const transporter = nodemailer.createTransport({
@@ -264,7 +280,6 @@ async function main() {
 
         process.exit(1);
     } finally {
-        // Müvəqqəti faylları sil (font cache saxla)
         if (pdfPath && fs.existsSync(pdfPath)) {
             fs.unlinkSync(pdfPath);
             log('🗑️', 'Müvəqqəti PDF silindi.');
