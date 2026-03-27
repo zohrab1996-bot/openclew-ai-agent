@@ -5,19 +5,16 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
+// --- [ULTRA CONFIG] ---
 const CONFIG = {
-    GROQ_API_KEY: process.env.GROQ_API_KEY || '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',
+    API_KEY: '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',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
-    IDENTITY: "OpenClew Global Intelligence v11.0",
-    PDF_PATH: path.resolve('./Strategic_Intelligence_Report.pdf'),
-    MODEL: 'llama-3.3-70b-versatile',
-    MAX_NEWS_PER_SOURCE: 2,
-    TOTAL_SOURCES_TO_USE: 3,
-    RETRY_ATTEMPTS: 3 
+    IDENTITY: "OpenClew AI Intelligence OS v9.0",
+    PDF_PATH: path.resolve('./Strategic_Intelligence_Report.pdf')
 };
 
-const groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
+const groq = new Groq({ apiKey: CONFIG.API_KEY });
 
 const SOURCES = [
     'https://openai.com/news/rss.xml',
@@ -27,95 +24,138 @@ const SOURCES = [
     'https://hai.stanford.edu/news/rss.xml'
 ];
 
-async function getNews( ) {
-    console.log("📡 Connecting to global AI streams...");
-    const selectedSources = SOURCES.sort(() => 0.5 - Math.random()).slice(0, CONFIG.TOTAL_SOURCES_TO_USE);
+// --- [INTELLIGENCE ENGINE] ---
+
+async function getNews() {
+    console.log("📡 Aggregating Qlobal Intelligence...");
+    const shuffled = SOURCES.sort(() => 0.5 - Math.random()).slice(0, 3);
     let allItems = [];
 
-    for (const url of selectedSources) {
+    for (const url of shuffled) {
         try {
-            const res = await axios.get(url, { timeout: 20000 });
-            const data = res.data;
-            const items = data.split('<item>').slice(1, CONFIG.MAX_NEWS_PER_SOURCE + 1);
-            
-            const parsed = items.map(i => {
-                const title = (i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/i) || [null, "AI Update"])[1].trim();
-                const link = (i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/i) || [null, "#"])[1].trim();
-                const desc = (i.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/description>/i) || [null, ""])[1].replace(/<[^>]*>?/gm, '').trim();
-                return { title, link, description: desc };
-            });
+            const res = await axios.get(url, { timeout: 10000 });
+            const items = res.data.split('<item>').slice(1, 3);
+            const parsed = items.map(i => ({
+                title: (i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/) || [null, "AI Update"])[1].trim(),
+                link: (i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/) || [null, "#"])[1].trim()
+            }));
             allItems.push(...parsed);
-        } catch (e) { console.error(`⚠️ Source failed: ${url}`); }
+        } catch (e) { console.error(`⚠️ Source Bypassed: ${url}`); }
     }
-    if (allItems.length === 0) throw new Error("No news found.");
     return allItems;
 }
 
-async function deepAnalyze(news, attempt = 1) {
-    console.log(`🧠 Analyzing [Attempt ${attempt}]: ${news.title.substring(0, 50)}...`);
-    const prompt = `Role: Senior AI Strategy Advisor. Analyze this AI news: "${news.title}". Context: "${news.description.substring(0, 800)}". Provide: 1. STRATEGIC CONTEXT, 2. INDUSTRY IMPACT (Azerbaijan), 3. EXECUTIVE ADVICE, 4. RISK ANALYSIS. Language: English. Style: Deep and Professional.`;
-    try {
-        const res = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: CONFIG.MODEL,
-            temperature: 0.4
-        });
-        const content = res.choices[0]?.message?.content;
-        if (!content || content.length < 50) throw new Error("Empty AI response.");
-        return content;
-    } catch (e) {
-        if (attempt < CONFIG.RETRY_ATTEMPTS) {
-            await new Promise(r => setTimeout(r, 2000));
-            return deepAnalyze(news, attempt + 1);
-        }
-        return "ERROR: AI Analysis failed after multiple attempts.";
-    }
+async function synthesizeIntelligence(results) {
+    console.log("🧠 Synthesizing Executive Overview...");
+    const titles = results.map(r => r.title).join(" | ");
+    const prompt = `As a Strategic Intelligence Officer, read these news titles: "${titles}". 
+    Provide a 3-paragraph "Global Strategic Synthesis" that connects these developments. 
+    Explain what they mean for the future of Sovereign AI and Digital Governance. 
+    Tone: High-level, Executive, Precise. English.`;
+
+    const res = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.3
+    });
+    return res.choices[0].message.content;
 }
 
-async function createFinalPDF(results) {
+async function deepAnalyze(news) {
+    const prompt = `You are a World-Class Strategy Consultant. Analyze: "${news.title}".
+    Provide JSON output with these keys:
+    1. analysis: Deep strategic context.
+    2. sector_impact: Impact on Gov, Energy, and Finance.
+    3. recommendation: 1-sentence action.
+    4. score: 1-10 for 'Strategic Importance'.`;
+
+    const res = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.3-70b-versatile',
+        response_format: { type: "json_object" },
+        temperature: 0.2
+    });
+    return JSON.parse(res.choices[0].message.content);
+}
+
+// --- [PDF ARCHITECT] ---
+
+async function createUltraPDF(summary, results) {
     return new Promise((resolve, reject) => {
         const doc = new PDFDocument({ margin: 50, size: 'A4' });
         const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
-        doc.rect(0, 0, 612, 120).fill('#001F3F');
-        doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('STRATEGIC INTELLIGENCE', 50, 45);
+
+        // Professional Dark Header
+        doc.rect(0, 0, 612, 120).fill('#001529');
+        doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL STRATEGIC BRIEF', 50, 45);
+        doc.fontSize(10).font('Helvetica').fillColor('#1890ff').text(`DIGITAL GOVERNANCE HUB | ${new Date().toDateString()}`, 50, 75);
+
+        // Section 1: Executive Synthesis
+        doc.moveDown(5).fillColor('#001529').fontSize(16).font('Helvetica-Bold').text('I. EXECUTIVE GLOBAL SYNTHESIS');
+        doc.moveDown(0.5).fillColor('#333333').fontSize(10.5).font('Helvetica').text(summary, { align: 'justify', lineGap: 3 });
+        
+        doc.moveDown(2).moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#EEEEEE').stroke();
+
+        // Section 2: Deep Dive Analysis
         results.forEach((n, i) => {
-            if (i > 0) doc.addPage();
-            doc.moveDown(5).fillColor('#001F3F').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${n.title}`);
-            doc.fontSize(9).fillColor('#1890FF').font('Helvetica').text(`SOURCE: ${n.link}`, { underline: true, link: n.link });
-            doc.moveDown(1.5).fillColor('#333333').fontSize(11).font('Helvetica').text(n.analysis, { align: 'justify', lineGap: 4, paragraphGap: 10 });
+            doc.addPage();
+            doc.fillColor('#001529').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${n.title}`);
+            doc.fontSize(8).fillColor('#1890ff').text(`REF: ${n.link}`, { underline: true });
+            
+            doc.moveDown(1.5).fillColor('#001529').fontSize(11).font('Helvetica-Bold').text('STRATEGIC CONTEXT:');
+            doc.fillColor('#333333').font('Helvetica').text(n.analysis.analysis, { align: 'justify' });
+
+            doc.moveDown(1).fillColor('#001529').font('Helvetica-Bold').text('SECTORAL IMPACT:');
+            doc.fillColor('#333333').font('Helvetica').text(n.analysis.sector_impact);
+
+            doc.moveDown(1.5).rect(50, doc.y, 512, 35).fill('#F5F5F5');
+            doc.fillColor('#D4380D').font('Helvetica-Bold').text('RECOMMENDATION:', 60, doc.y - 25);
+            doc.fillColor('#1A1A1A').font('Helvetica').text(n.analysis.recommendation, 60, doc.y - 12);
+
+            // Importance Badge
+            doc.fontSize(8).fillColor('#999999').text(`Strategic Importance: ${n.analysis.score}/10`, 50, 785);
         });
+
         doc.end();
         stream.on('finish', () => resolve(CONFIG.PDF_PATH));
         stream.on('error', reject);
     });
 }
 
-async function startCycle() {
-    console.log("🚀 STARTING OPEN-CLEW INTELLIGENCE CYCLE...");
+// --- [RUN CYCLE] ---
+
+async function runMission() {
     try {
-        const news = await getNews();
-        const fullData = [];
-        for (const n of news) {
+        const newsList = await getNews();
+        const synthesis = await synthesizeIntelligence(newsList);
+        
+        const analyzedResults = [];
+        for (const n of newsList) {
             const analysis = await deepAnalyze(n);
-            fullData.push({ ...n, analysis });
+            analyzedResults.push({ ...n, analysis });
         }
-        const reportPath = await createFinalPDF(fullData);
+
+        const reportPath = await createUltraPDF(synthesis, analyzedResults);
+
         const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS }
         });
+
         await transporter.sendMail({
             from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
-            subject: `💼 STRATEGIC ANALYSIS: ${new Date().toLocaleDateString('en-US')}`,
-            html: `<h3>Zöhrab Bey,</h3><p>Your strategic report is ready with <b>${fullData.length} analyses</b>.</p>`,
-            attachments: [{ filename: 'Strategic_Intelligence_Report.pdf', path: reportPath }]
+            subject: `🚀 STRATEGIC INTELLIGENCE — ${new Date().toLocaleDateString()}`,
+            html: `<h3>Zöhrab Bey,</h3><p>Your executive briefing is ready. This edition includes a <b>Global Synthesis</b> and <b>${analyzedResults.length} detailed deep-dives</b>.</p>`,
+            attachments: [{ filename: 'Strategic_Brief_v9.pdf', path: reportPath }]
         });
-        console.log("🏁 Cycle Complete.");
+
+        console.log("🏁 Mission Successful.");
     } catch (err) {
-        console.error(`❌ FAILED: ${err.message}`);
+        console.error("❌ Critical Failure:", err.message);
         process.exit(1);
     }
 }
-startCycle();
+
+runMission();
