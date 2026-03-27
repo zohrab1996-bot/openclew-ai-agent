@@ -5,121 +5,116 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
-// ─── CONFIG ───────────────────────────────────────────────────────────────────
+// ─── SENIOR CONFIG ────────────────────────────────────────────────────────────
 const CONFIG = {
     API_KEY: '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',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
-    IDENTITY: "OpenClew Global Intelligence OS v7.5",
-    PDF_PATH: path.resolve('./Strategic_Intelligence_Full_Report.pdf'),
+    IDENTITY: "OpenClew Enterprise Intelligence v8.0",
+    PDF_PATH: path.resolve('./Strategic_Intelligence_Full_Brief.pdf'),
+    NEWS_LIMIT: 5 // Daha çox xəbər, daha geniş hesabat
 };
 
 const groq = new Groq({ apiKey: CONFIG.API_KEY });
 
+// ─── COMPREHENSIVE SOURCES ────────────────────────────────────────────────────
+const SOURCES = [
+    { name: 'OpenAI', url: 'https://openai.com/news/rss.xml' },
+    { name: 'DeepMind', url: 'https://deepmind.google/blog/rss.xml' },
+    { name: 'MIT Tech Review', url: 'https://www.technologyreview.com/feed/' },
+    { name: 'Stanford HAI', url: 'https://hai.stanford.edu/news/rss.xml' },
+    { name: 'TechCrunch AI', url: 'https://techcrunch.com/category/artificial-intelligence/feed/' },
+    { name: 'VentureBeat AI', url: 'https://venturebeat.com/category/ai/feed/' },
+    { name: 'McKinsey Insights', url: 'https://www.mckinsey.com/featured-insights/rss.xml' }
+];
+
 // ─── CORE ENGINE ──────────────────────────────────────────────────────────────
-class IntelligenceAgent {
-    constructor() {
-        this.sources = [
-            'https://openai.com/news/rss.xml',
-            'https://deepmind.google/blog/rss.xml',
-            'https://www.technologyreview.com/feed/',
-            'https://techcrunch.com/category/artificial-intelligence/feed/',
-            'https://openai.com/news/rss.xml'
-        ];
-    }
-
-    async fetchNews() {
-        const url = this.sources[Math.floor(Math.random() * this.sources.length)];
-        console.log(`📡 Sourcing Data from: ${url}`);
-        const res = await axios.get(url, { timeout: 10000 });
-        const blocks = res.data.split('<item>').slice(1, 4);
-        return blocks.map(b => ({
-            title: b.match(/<title>(.*?)<\/title>/)?.[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').trim() || "N/A",
-            link: b.match(/<link>(.*?)<\/link>/)?.[1] || "#"
-        }));
-    }
-
-    async deepAnalyze(news) {
-        console.log(`🧠 Executing Multi-Vector Analysis: ${news.title.substring(0, 40)}...`);
-        const prompt = `As a Senior Strategy Consultant, evaluate this AI development: "${news.title}".
-        Provide JSON output ONLY with these EXACT keys:
-        - executive_summary: 3 sentences on core impact.
-        - strategic_implications: Deep analysis for government/enterprise sector.
-        - actionable_recommendation: 1 specific next step.
-        - metrics: { innovation: 1-10, risk: 1-10, feasibility: 1-10, impact: 1-10, urgency: 1-10 }
+class IntelligenceSystem {
+    async fetchAggregatedNews() {
+        console.log("📡 Aggregating global data streams...");
+        let allNews = [];
         
-        Language: English. Tone: Executive, Visionary, Precise.`;
+        // Paralel olaraq ən aktiv 3 mənbədən məlumat çəkirik
+        const selectedSources = SOURCES.sort(() => 0.5 - Math.random()).slice(0, 3);
+        
+        for (const src of selectedSources) {
+            try {
+                const res = await axios.get(src.url, { timeout: 12000 });
+                const blocks = res.data.split('<item>').slice(1, 3); // Hər mənbədən 2 xəbər
+                const parsed = blocks.map(b => ({
+                    title: b.match(/<title>(.*?)<\/title>/)?.[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, '$1').trim(),
+                    link: b.match(/<link>(.*?)<\/link>/)?.[1] || "#",
+                    source: src.name
+                }));
+                allNews.push(...parsed);
+            } catch (e) { console.warn(`⚠️ Source ${src.name} bypassed.`); }
+        }
+        return allNews.slice(0, CONFIG.NEWS_LIMIT);
+    }
+
+    async strategicAnalysis(news) {
+        console.log(`🧠 Deep Strategic Analysis for: ${news.title.substring(0, 35)}...`);
+        const prompt = `As a World-Class Strategy Consultant (McKinsey/BCG level), analyze this: "${news.title}".
+        Provide a comprehensive report in JSON format with these exact keys:
+        - overview: Detailed summary of the innovation.
+        - sector_deployment: How is this specific AI tech being applied in sectors like Energy, Finance, or Logistics? (Specific examples).
+        - market_disruption: Who loses and who wins in the global market?
+        - strategic_imperative: 2-3 high-level recommendations for national-level digital leaders.
+        - metrics: { innovation: 1-10, scalability: 1-10, disruption_risk: 1-10 }`;
 
         const res = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
             response_format: { type: "json_object" },
-            temperature: 0.1 // Maximum stability
+            temperature: 0.2
         });
         return JSON.parse(res.choices[0].message.content);
     }
 
-    async createVisualPDF(data) {
+    async generatePDF(data) {
         return new Promise(async (resolve) => {
-            const doc = new PDFDocument({ margin: 50, size: 'A4' });
+            const doc = new PDFDocument({ margin: 40, size: 'A4' });
             const stream = fs.createWriteStream(CONFIG.PDF_PATH);
             doc.pipe(stream);
 
-            // Dark Mode Executive Header
-            doc.rect(0, 0, 612, 115).fill('#001529');
-            doc.fillColor('#FFFFFF').fontSize(24).font('Helvetica-Bold').text('GLOBAL STRATEGIC INTELLIGENCE', 50, 40);
-            doc.fontSize(10).font('Helvetica').fillColor('#1890ff').text(`DIGITAL STRATEGY UNIT | VER. ${new Date().toLocaleDateString()}`, 50, 70);
+            // Cover Page / Header
+            doc.rect(0, 0, 612, 120).fill('#002147'); // Oxford Blue
+            doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('STRATEGIC AI INTELLIGENCE', 40, 45);
+            doc.fontSize(10).font('Helvetica').fillColor('#E5E5E5').text(`EXECUTIVE REPORT | VERSION 8.0 | ${new Date().toDateString()}`, 40, 75);
 
-            for (const [i, entry] of data.entries()) {
-                if (i > 0) doc.addPage();
+            data.forEach((entry, i) => {
+                doc.addPage();
                 
-                doc.moveDown(5).fillColor('#001529').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${entry.title}`);
-                doc.fontSize(8).fillColor('#1890ff').text(`SOURCE: ${entry.link}`, { underline: true });
+                // Content Title & Meta
+                doc.fillColor('#002147').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${entry.title}`, 40, 50);
+                doc.fontSize(9).fillColor('#666666').font('Helvetica').text(`ORIGIN: ${entry.source} | URL: ${entry.link}`);
                 doc.moveDown(1.5);
 
-                // QuickChart Radar Generation
+                // Section 1: Strategic Overview
+                doc.fillColor('#002147').fontSize(12).font('Helvetica-Bold').text('I. STRATEGIC OVERVIEW');
+                doc.fillColor('#333333').fontSize(10.5).font('Helvetica').text(entry.analysis.overview, { align: 'justify' });
+                doc.moveDown(1.5);
+
+                // Section 2: Industry Deployment (NEW!)
+                doc.rect(40, doc.y, 532, 70).fill('#F0F4F8');
+                doc.fillColor('#004085').fontSize(11).font('Helvetica-Bold').text('II. SECTORAL AI DEPLOYMENT & USE CASES', 50, doc.y + 10);
+                doc.fillColor('#222222').fontSize(10).font('Helvetica').text(entry.analysis.sector_deployment, { width: 510 });
+                doc.moveDown(4);
+
+                // Section 3: Market Dynamics
+                doc.fillColor('#002147').fontSize(12).font('Helvetica-Bold').text('III. MARKET DYNAMICS & DISRUPTION');
+                doc.fillColor('#333333').font('Helvetica').text(entry.analysis.market_disruption, { align: 'justify' });
+                doc.moveDown(1.5);
+
+                // Section 4: National Strategic Imperative
+                doc.fillColor('#D4380D').fontSize(12).font('Helvetica-Bold').text('IV. NATIONAL STRATEGIC IMPERATIVE');
+                doc.fillColor('#1A1A1A').font('Helvetica').text(entry.analysis.strategic_imperative, { lineGap: 3 });
+
+                // Metrics Footer for each page
                 const m = entry.analysis.metrics;
-                const chartConfig = {
-                    type: 'radar',
-                    data: {
-                        labels: ['Innovation', 'Risk', 'Feasibility', 'Impact', 'Urgency'],
-                        datasets: [{
-                            label: 'Strategic Score',
-                            data: [m.innovation, m.risk, m.feasibility, m.impact, m.urgency],
-                            backgroundColor: 'rgba(24, 144, 255, 0.2)',
-                            borderColor: 'rgb(24, 144, 255)',
-                            pointBackgroundColor: 'rgb(24, 144, 255)'
-                        }]
-                    },
-                    options: { scale: { ticks: { min: 0, max: 10 } } }
-                };
+                doc.fontSize(8).fillColor('#999999').text(`METRICS >> Innovation: ${m.innovation}/10 | Scalability: ${m.scalability}/10 | Disruption Risk: ${m.disruption_risk}/10`, 40, 780);
+            });
 
-                const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&width=300&height=200`;
-                
-                try {
-                    const chartRes = await axios.get(chartUrl, { responseType: 'arraybuffer' });
-                    doc.image(chartRes.data, 300, doc.y - 10, { width: 250 });
-                } catch (e) { console.warn("Chart generation failed."); }
-
-                // Textual Content
-                doc.fillColor('#333333').fontSize(11).font('Helvetica-Bold').text('EXECUTIVE SUMMARY', 50, doc.y);
-                doc.font('Helvetica').fontSize(10).text(entry.analysis.executive_summary, { width: 240, align: 'justify' });
-                
-                doc.moveDown(1.5).font('Helvetica-Bold').text('STRATEGIC IMPLICATIONS');
-                doc.font('Helvetica').text(entry.analysis.strategic_implications, { align: 'justify' });
-
-                doc.moveDown(1.5).fillColor('#D4380D').font('Helvetica-Bold').text('ACTIONABLE RECOMMENDATION');
-                doc.font('Helvetica').text(entry.analysis.actionable_recommendation);
-
-                // Status Bar at the bottom of entry
-                doc.moveDown(2);
-                doc.rect(50, doc.y, 512, 20).fill('#F5F5F5');
-                doc.fillColor('#595959').fontSize(8).text(`INNOVATION: ${m.innovation}/10  |  URGENCY: ${m.urgency}/10  |  RISK LEVEL: ${m.risk > 7 ? 'HIGH' : 'CONTROLLED'}`, 60, doc.y - 14);
-            }
-
-            // Global Footer
-            doc.fontSize(8).fillColor('#BFBFBF').text(`CONFIDENTIAL - MDDT INTERNAL USE ONLY - ${CONFIG.IDENTITY}`, 50, 785, { align: 'center' });
-            
             doc.end();
             stream.on('finish', () => resolve(CONFIG.PDF_PATH));
         });
@@ -127,34 +122,34 @@ class IntelligenceAgent {
 
     async run() {
         try {
-            const rawNews = await this.fetchNews();
-            const analyzedData = [];
+            const rawNews = await this.fetchAggregatedNews();
+            const compiledData = [];
             for (const n of rawNews) {
-                const analysis = await this.deepAnalyze(n);
-                analyzedData.push({ ...n, analysis });
+                const analysis = await this.strategicAnalysis(n);
+                compiledData.push({ ...n, analysis });
             }
 
-            const pdfPath = await this.createVisualPDF(analyzedData);
-            
+            const pdf = await this.generatePDF(compiledData);
+
             const transporter = nodemailer.createTransport({
                 service: 'gmail',
                 auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS }
             });
 
             await transporter.sendMail({
-                from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
+                from: `"OpenClew Intelligence" <${CONFIG.RECIPIENT}>`,
                 to: CONFIG.RECIPIENT,
-                subject: `💼 STRATEGIC REPORT: ${new Date().toLocaleDateString('en-US')}`,
-                html: `<h3>Zöhrab Bey,</h3><p>Today's intelligence report with visual risk/innovation assessments is attached.</p>`,
-                attachments: [{ filename: 'Strategic_Brief_v7.pdf', path: pdfPath }]
+                subject: `💼 ENTERPRISE STRATEGY BRIEF — ${new Date().toLocaleDateString('en-US')}`,
+                html: `<h3>Zöhrab Bey,</h3><p>Your comprehensive <b>Intelligence Briefing</b> is ready. This edition focuses on <b>Sectoral AI Deployment</b> and global market shifts.</p>`,
+                attachments: [{ filename: 'Global_Intelligence_V8.pdf', path: pdf }]
             });
 
-            console.log("🏁 Mission Successful. Report dispatched.");
+            console.log("🏁 Global Intelligence Cycle Finished.");
         } catch (err) {
-            console.error("❌ Critical System Failure:", err.message);
+            console.error("❌ System Halted:", err.message);
             process.exit(1);
         }
     }
 }
 
-new IntelligenceAgent().run();
+new IntelligenceSystem().run();
