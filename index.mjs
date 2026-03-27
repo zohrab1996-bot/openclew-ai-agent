@@ -5,13 +5,14 @@ import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
 
-// --- [ULTRA CONFIG] ---
+// ─── MASTER CONFIG ────────────────────────────────────────────────────────────
 const CONFIG = {
     API_KEY: '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',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
-    IDENTITY: "OpenClew AI Intelligence OS v9.0",
-    PDF_PATH: path.resolve('./Strategic_Intelligence_Report.pdf')
+    IDENTITY: "OpenClew Sovereign Intelligence OS v10.0",
+    PDF_PATH: path.resolve('./Sovereign_Intelligence_Report.pdf'),
+    NEWS_LIMIT: 4
 };
 
 const groq = new Groq({ apiKey: CONFIG.API_KEY });
@@ -24,34 +25,31 @@ const SOURCES = [
     'https://hai.stanford.edu/news/rss.xml'
 ];
 
-// --- [INTELLIGENCE ENGINE] ---
-
-async function getNews() {
-    console.log("📡 Aggregating Qlobal Intelligence...");
+// ─── INTELLIGENCE ENGINE ──────────────────────────────────────────────────────
+async function fetchAggregatedIntelligence() {
+    console.log("📡 Harvesting global data streams...");
     const shuffled = SOURCES.sort(() => 0.5 - Math.random()).slice(0, 3);
-    let allItems = [];
+    let rawData = [];
 
     for (const url of shuffled) {
         try {
-            const res = await axios.get(url, { timeout: 10000 });
+            const res = await axios.get(url, { timeout: 12000 });
             const items = res.data.split('<item>').slice(1, 3);
             const parsed = items.map(i => ({
-                title: (i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/) || [null, "AI Update"])[1].trim(),
+                title: (i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/) || [null, "Intelligence Update"])[1].trim(),
                 link: (i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/) || [null, "#"])[1].trim()
             }));
-            allItems.push(...parsed);
-        } catch (e) { console.error(`⚠️ Source Bypassed: ${url}`); }
+            rawData.push(...parsed);
+        } catch (e) { console.warn(`⚠️ Source error: ${url}`); }
     }
-    return allItems;
+    return rawData.slice(0, CONFIG.NEWS_LIMIT);
 }
 
-async function synthesizeIntelligence(results) {
-    console.log("🧠 Synthesizing Executive Overview...");
-    const titles = results.map(r => r.title).join(" | ");
-    const prompt = `As a Strategic Intelligence Officer, read these news titles: "${titles}". 
-    Provide a 3-paragraph "Global Strategic Synthesis" that connects these developments. 
-    Explain what they mean for the future of Sovereign AI and Digital Governance. 
-    Tone: High-level, Executive, Precise. English.`;
+async function synthesizeReport(newsItems) {
+    console.log("🧠 Generating Executive Synthesis...");
+    const titles = newsItems.map(n => n.title).join(" | ");
+    const prompt = `Act as a Sovereign AI Strategist. Summarize these developments: "${titles}". 
+    Focus on geopolitical AI competition and digital governance. Provide 3 dense, high-level paragraphs. English.`;
 
     const res = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
@@ -62,12 +60,13 @@ async function synthesizeIntelligence(results) {
 }
 
 async function deepAnalyze(news) {
-    const prompt = `You are a World-Class Strategy Consultant. Analyze: "${news.title}".
-    Provide JSON output with these keys:
-    1. analysis: Deep strategic context.
-    2. sector_impact: Impact on Gov, Energy, and Finance.
-    3. recommendation: 1-sentence action.
-    4. score: 1-10 for 'Strategic Importance'.`;
+    console.log(`🔍 Deep Diving: ${news.title.substring(0, 40)}...`);
+    const prompt = `As a McKinsey Senior Partner, analyze: "${news.title}".
+    Provide a JSON response with:
+    - context: Deep technical/strategic background.
+    - sectoral_impact: How it affects Government, Energy, and Finance sectors.
+    - recommendation: 1-sentence "Killer" advice for an MDDT leader.
+    - score: 1-10 for 'Global Impact'.`;
 
     const res = await groq.chat.completions.create({
         messages: [{ role: 'user', content: prompt }],
@@ -78,43 +77,44 @@ async function deepAnalyze(news) {
     return JSON.parse(res.choices[0].message.content);
 }
 
-// --- [PDF ARCHITECT] ---
-
-async function createUltraPDF(summary, results) {
+// ─── PDF ARCHITECT ────────────────────────────────────────────────────────────
+async function buildSovereignPDF(synthesis, data) {
     return new Promise((resolve, reject) => {
         const doc = new PDFDocument({ margin: 50, size: 'A4' });
         const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
 
-        // Professional Dark Header
-        doc.rect(0, 0, 612, 120).fill('#001529');
-        doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL STRATEGIC BRIEF', 50, 45);
-        doc.fontSize(10).font('Helvetica').fillColor('#1890ff').text(`DIGITAL GOVERNANCE HUB | ${new Date().toDateString()}`, 50, 75);
+        // Professional Header
+        doc.rect(0, 0, 612, 110).fill('#001F3F');
+        doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('SOVEREIGN AI INTELLIGENCE', 50, 40);
+        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`EXECUTIVE BRIEFING | ${new Date().toDateString()}`, 50, 70);
 
-        // Section 1: Executive Synthesis
-        doc.moveDown(5).fillColor('#001529').fontSize(16).font('Helvetica-Bold').text('I. EXECUTIVE GLOBAL SYNTHESIS');
-        doc.moveDown(0.5).fillColor('#333333').fontSize(10.5).font('Helvetica').text(summary, { align: 'justify', lineGap: 3 });
+        // Section I: Global Synthesis
+        doc.moveDown(5).fillColor('#001F3F').fontSize(16).font('Helvetica-Bold').text('I. EXECUTIVE GLOBAL SYNTHESIS');
+        doc.moveDown(0.5).fillColor('#333333').fontSize(10.5).font('Helvetica').text(synthesis, { align: 'justify', lineGap: 3 });
         
         doc.moveDown(2).moveTo(50, doc.y).lineTo(562, doc.y).strokeColor('#EEEEEE').stroke();
 
-        // Section 2: Deep Dive Analysis
-        results.forEach((n, i) => {
+        // Section II: Deep Dives
+        data.forEach((item, i) => {
             doc.addPage();
-            doc.fillColor('#001529').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${n.title}`);
-            doc.fontSize(8).fillColor('#1890ff').text(`REF: ${n.link}`, { underline: true });
-            
-            doc.moveDown(1.5).fillColor('#001529').fontSize(11).font('Helvetica-Bold').text('STRATEGIC CONTEXT:');
-            doc.fillColor('#333333').font('Helvetica').text(n.analysis.analysis, { align: 'justify' });
+            // Title Header
+            doc.rect(0, 0, 612, 40).fill('#F4F7F9');
+            doc.fillColor('#001F3F').fontSize(14).font('Helvetica-Bold').text(`${i + 1}. ${item.title}`, 50, 15);
+            doc.fontSize(8).fillColor('#1890FF').text(`SOURCE: ${item.link}`, 50, 45);
 
-            doc.moveDown(1).fillColor('#001529').font('Helvetica-Bold').text('SECTORAL IMPACT:');
-            doc.fillColor('#333333').font('Helvetica').text(n.analysis.sector_impact);
+            doc.moveDown(3);
+            doc.fillColor('#001F3F').fontSize(11).font('Helvetica-Bold').text('STRATEGIC CONTEXT:');
+            doc.fillColor('#333333').font('Helvetica').fontSize(10).text(item.analysis.context, { align: 'justify', lineGap: 2 });
 
-            doc.moveDown(1.5).rect(50, doc.y, 512, 35).fill('#F5F5F5');
-            doc.fillColor('#D4380D').font('Helvetica-Bold').text('RECOMMENDATION:', 60, doc.y - 25);
-            doc.fillColor('#1A1A1A').font('Helvetica').text(n.analysis.recommendation, 60, doc.y - 12);
+            doc.moveDown(1.5).fillColor('#001F3F').font('Helvetica-Bold').text('SECTORAL IMPACT (ENERGY, GOV, FINANCE):');
+            doc.fillColor('#333333').font('Helvetica').text(item.analysis.sectoral_impact);
 
-            // Importance Badge
-            doc.fontSize(8).fillColor('#999999').text(`Strategic Importance: ${n.analysis.score}/10`, 50, 785);
+            doc.moveDown(2).rect(50, doc.y, 512, 45).fill('#FFFBE6').strokeColor('#FFE58F').stroke();
+            doc.fillColor('#D4380D').font('Helvetica-Bold').text('EXECUTIVE RECOMMENDATION:', 65, doc.y - 35);
+            doc.fillColor('#1A1A1A').font('Helvetica').text(item.analysis.recommendation, 65, doc.y - 20);
+
+            doc.fontSize(9).fillColor('#999999').text(`IMPACT SCORE: ${item.analysis.score}/10`, 50, 785);
         });
 
         doc.end();
@@ -123,20 +123,20 @@ async function createUltraPDF(summary, results) {
     });
 }
 
-// --- [RUN CYCLE] ---
-
-async function runMission() {
+// ─── EXECUTION ────────────────────────────────────────────────────────────────
+async function main() {
+    console.log("🚀 Initializing Sovereign Mission...");
     try {
-        const newsList = await getNews();
-        const synthesis = await synthesizeIntelligence(newsList);
-        
-        const analyzedResults = [];
-        for (const n of newsList) {
+        const news = await fetchAggregatedIntelligence();
+        const synthesis = await synthesizeReport(news);
+        const compiled = [];
+
+        for (const n of news) {
             const analysis = await deepAnalyze(n);
-            analyzedResults.push({ ...n, analysis });
+            compiled.push({ ...n, analysis });
         }
 
-        const reportPath = await createUltraPDF(synthesis, analyzedResults);
+        const report = await buildSovereignPDF(synthesis, compiled);
 
         const transporter = nodemailer.createTransport({
             service: 'gmail',
@@ -146,16 +146,16 @@ async function runMission() {
         await transporter.sendMail({
             from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
-            subject: `🚀 STRATEGIC INTELLIGENCE — ${new Date().toLocaleDateString()}`,
-            html: `<h3>Zöhrab Bey,</h3><p>Your executive briefing is ready. This edition includes a <b>Global Synthesis</b> and <b>${analyzedResults.length} detailed deep-dives</b>.</p>`,
-            attachments: [{ filename: 'Strategic_Brief_v9.pdf', path: reportPath }]
+            subject: `💼 SOVEREIGN INTELLIGENCE: ${new Date().toLocaleDateString()}`,
+            html: `<h3>Zöhrab Bey,</h3><p>Your <b>v10.0 Sovereign Intelligence Report</b> is attached. This edition eliminates previous parsing errors and provides a fully optimized executive experience.</p>`,
+            attachments: [{ filename: 'Sovereign_Intelligence_Report.pdf', path: report }]
         });
 
-        console.log("🏁 Mission Successful.");
+        console.log("🏁 Mission Successful. Intelligence Deployed.");
     } catch (err) {
-        console.error("❌ Critical Failure:", err.message);
+        console.error("❌ CRITICAL FAILURE:", err.message);
         process.exit(1);
     }
 }
 
-runMission();
+main();
