@@ -9,11 +9,12 @@ const CONFIG = {
     GROQ_API_KEY: process.env.GROQ_API_KEY || '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',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
-    IDENTITY: "OpenClew Global Intelligence v10.0 (Native)",
+    IDENTITY: "OpenClew Global Intelligence v11.0",
     PDF_PATH: path.resolve('./Strategic_Intelligence_Report.pdf'),
     MODEL: 'llama-3.3-70b-versatile',
     MAX_NEWS_PER_SOURCE: 2,
-    TOTAL_SOURCES_TO_USE: 3
+    TOTAL_SOURCES_TO_USE: 3,
+    RETRY_ATTEMPTS: 3 
 };
 
 const groq = new Groq({ apiKey: CONFIG.GROQ_API_KEY });
@@ -33,17 +34,15 @@ async function getNews( ) {
 
     for (const url of selectedSources) {
         try {
-            const res = await axios.get(url, { timeout: 15000 });
+            const res = await axios.get(url, { timeout: 20000 });
             const data = res.data;
             const items = data.split('<item>').slice(1, CONFIG.MAX_NEWS_PER_SOURCE + 1);
             
             const parsed = items.map(i => {
-                const titleMatch = i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/i);
-                const linkMatch = i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/i);
-                return {
-                    title: titleMatch ? titleMatch[1].trim() : "AI Strategic Update",
-                    link: linkMatch ? linkMatch[1].trim() : "#"
-                };
+                const title = (i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/i) || [null, "AI Update"])[1].trim();
+                const link = (i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/i) || [null, "#"])[1].trim();
+                const desc = (i.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/description>/i) || [null, ""])[1].replace(/<[^>]*>?/gm, '').trim();
+                return { title, link, description: desc };
             });
             allItems.push(...parsed);
         } catch (e) { console.error(`⚠️ Source failed: ${url}`); }
@@ -52,17 +51,25 @@ async function getNews( ) {
     return allItems;
 }
 
-async function deepAnalyze(news) {
-    console.log(`🧠 Analyzing: ${news.title.substring(0, 50)}...`);
-    const prompt = `Role: Senior AI Strategy Advisor (OpenClew). Analyze this AI development: "${news.title}". Provide Strategic Context, Industry Impact (Logistics, Energy, Gov in Azerbaijan), Executive Advice, and Risk Analysis. Language: English.`;
+async function deepAnalyze(news, attempt = 1) {
+    console.log(`🧠 Analyzing [Attempt ${attempt}]: ${news.title.substring(0, 50)}...`);
+    const prompt = `Role: Senior AI Strategy Advisor. Analyze this AI news: "${news.title}". Context: "${news.description.substring(0, 800)}". Provide: 1. STRATEGIC CONTEXT, 2. INDUSTRY IMPACT (Azerbaijan), 3. EXECUTIVE ADVICE, 4. RISK ANALYSIS. Language: English. Style: Deep and Professional.`;
     try {
         const res = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: CONFIG.MODEL,
-            temperature: 0.3
+            temperature: 0.4
         });
-        return res.choices[0].message.content;
-    } catch (e) { return "Analysis currently unavailable."; }
+        const content = res.choices[0]?.message?.content;
+        if (!content || content.length < 50) throw new Error("Empty AI response.");
+        return content;
+    } catch (e) {
+        if (attempt < CONFIG.RETRY_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, 2000));
+            return deepAnalyze(news, attempt + 1);
+        }
+        return "ERROR: AI Analysis failed after multiple attempts.";
+    }
 }
 
 async function createFinalPDF(results) {
@@ -75,8 +82,8 @@ async function createFinalPDF(results) {
         results.forEach((n, i) => {
             if (i > 0) doc.addPage();
             doc.moveDown(5).fillColor('#001F3F').fontSize(18).font('Helvetica-Bold').text(`${i + 1}. ${n.title}`);
-            doc.fontSize(9).fillColor('#1890FF').font('Helvetica').text(`SOURCE: ${n.link}`, { underline: true });
-            doc.moveDown(1.5).fillColor('#333333').fontSize(11).font('Helvetica').text(n.analysis, { align: 'justify', lineGap: 4 });
+            doc.fontSize(9).fillColor('#1890FF').font('Helvetica').text(`SOURCE: ${n.link}`, { underline: true, link: n.link });
+            doc.moveDown(1.5).fillColor('#333333').fontSize(11).font('Helvetica').text(n.analysis, { align: 'justify', lineGap: 4, paragraphGap: 10 });
         });
         doc.end();
         stream.on('finish', () => resolve(CONFIG.PDF_PATH));
@@ -102,7 +109,7 @@ async function startCycle() {
             from: `"OpenClew Strategist" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
             subject: `💼 STRATEGIC ANALYSIS: ${new Date().toLocaleDateString('en-US')}`,
-            html: `<h3>Zöhrab Bey,</h3><p>Your strategic report is ready.</p>`,
+            html: `<h3>Zöhrab Bey,</h3><p>Your strategic report is ready with <b>${fullData.length} analyses</b>.</p>`,
             attachments: [{ filename: 'Strategic_Intelligence_Report.pdf', path: reportPath }]
         });
         console.log("🏁 Cycle Complete.");
