@@ -7,7 +7,7 @@ import path from 'path';
 
 // --- [ULTRA-SCALE CONFIG] ---
 const CONFIG = {
-    // Əgər GitHub Secrets-də GEMINI_API_KEY varsa onu götürür, yoxdursa birbaşa yazdığınız açarı
+    // GitHub Secrets-də GEMINI_API_KEY yoxdursa, aşağıdakı statik açardan istifadə edir
     API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyAkN29GiV31NDJxNtSLOj4c5dZXDojosFA', 
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
@@ -17,9 +17,10 @@ const CONFIG = {
 
 // Gemini-ni inisializasiya edirik
 const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
+
+// DÜZƏLİŞ: Model adını 'gemini-1.5-flash-latest' edirik ki, 404 xətası verməsin
 const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    // Təhlükəsizlik filtrlərini söndürürük (BLOCK_NONE) ki, həssas mövzulu xəbərləri keçməsin
+    model: "gemini-1.5-flash-latest",
     safetySettings: [
         { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
         { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -28,7 +29,6 @@ const model = genAI.getGenerativeModel({
     ]
 });
 
-// Fasilə üçün köməkçi funksiya (Rate Limit qorunması üçün)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- [ALL 30 GLOBAL SOURCES] ---
@@ -88,12 +88,12 @@ async function fetchFromSource(url) {
 }
 
 async function deepAnalyze(news) {
-    console.log(`🧠 Gemini 1.5 Flash Analysis: ${news.title.substring(0, 35)}...`);
+    console.log(`🧠 Gemini Analiz edir: ${news.title.substring(0, 35)}...`);
     
-    // RPM limitini (15/dəq) aşmamaq üçün 5 saniyəlik ciddi fasilə
+    // Rate limit (15 RPM) üçün 5 saniyəlik fasilə
     await sleep(5000);
 
-    const prompt = `As an Executive AI Advisor, analyze this news from ${news.source}: "${news.title}".
+    const promptText = `As an Executive AI Advisor, analyze this news from ${news.source}: "${news.title}".
     Provide exactly 3 bullet points:
     1. GLOBAL IMPACT: Market significance.
     2. SECTORAL VALUE: Benefit to Gov/Enterprise.
@@ -101,12 +101,16 @@ async function deepAnalyze(news) {
     Language: English. Professional.`;
 
     try {
-        const result = await model.generateContent(prompt);
+        // DÜZƏLİŞ: Sorğunu daha geniş formatda (v1beta dəstəyi üçün) göndəririk
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: promptText }] }]
+        });
+
         const response = await result.response;
         return response.text();
     } catch (err) {
-        console.error(`Gemini Error on ${news.source}:`, err.message);
-        return "Analysis skipped due to API throughput or safety filters.";
+        console.error(`❌ Gemini Xətası (${news.source}):`, err.message);
+        return "Analysis skipped due to API connection issues or safety filters.";
     }
 }
 
@@ -116,10 +120,10 @@ async function createMassivePDF(results) {
         const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
 
-        // Header - Professional Navy Style
+        // Header
         doc.rect(0, 0, 612, 120).fill('#001F3F');
         doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL INTELLIGENCE HUB', 40, 45);
-        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`GEMINI 1.5 FLASH NODE | v10.0 | ${new Date().toDateString()}`, 40, 75);
+        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`GEMINI 1.5 FLASH | v10.0 | ${new Date().toDateString()}`, 40, 75);
 
         results.forEach((n, i) => {
             if (i % 2 === 0 && i !== 0) doc.addPage();
@@ -152,7 +156,6 @@ async function startMasterCycle() {
         console.log(`✅ Success: ${validNews.length}/${SOURCES.length} nodes responded.`);
 
         const fullData = [];
-        // Sequential analysis - Limitlərə ilişməmək üçün tək-tək (sequential) emal
         for (const n of validNews) {
             const analysis = await deepAnalyze(n);
             fullData.push({ ...n, analysis });
@@ -169,7 +172,7 @@ async function startMasterCycle() {
             from: `"OpenClew Global Hub" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
             subject: `🌍 GEMINI GLOBAL SYNC REPORT — ${new Date().toLocaleDateString()}`,
-            html: `<h3>Zöhrab Bey,</h3><p>The system has successfully synchronized with <b>${validNews.length} active nodes</b> using <b>Gemini 1.5 Flash</b>.</p><p>Latest strategic intelligence report is attached (4s safety delay applied).</p>`,
+            html: `<h3>Zöhrab Bey,</h3><p>The system has successfully synchronized with <b>${validNews.length} active nodes</b> using <b>Gemini 1.5 Flash</b>.</p><p>Latest strategic intelligence report is attached.</p>`,
             attachments: [{ filename: 'Global_Intelligence_Gemini_Report.pdf', path: reportPath }]
         });
 
