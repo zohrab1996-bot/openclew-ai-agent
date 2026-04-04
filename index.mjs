@@ -7,21 +7,23 @@ import path from 'path';
 
 // --- [CONFIG] ---
 const CONFIG = {
-    API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyAkN29GiV31NDJxNtSLOj4c5dZXDojosFA', 
+    API_KEY: process.env.GEMINI_API_KEY,
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
     IDENTITY: "OpenClew Global Intelligence v10.0",
     PDF_PATH: path.resolve('./Full_Strategic_Intelligence_Report.pdf')
 };
 
+if (!CONFIG.API_KEY) {
+    console.error("❌ GEMINI_API_KEY tapılmadı! GitHub Secrets-i yoxla.");
+    process.exit(1);
+}
+
 const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
 
-// 404 xətasından qaçmaq üçün yoxlanılacaq model adları (Sıra ilə)
 const POSSIBLE_MODELS = [
-    "gemini-1.5-flash",
-    "models/gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-pro"
+    "gemini-2.0-flash",
+    "gemini-2.5-pro-exp-03-25"
 ];
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -65,50 +67,65 @@ async function fetchFromSource(url) {
         const items = res.data.split('<item>').slice(1, 2);
         if (items.length === 0) return null;
         const i = items[0];
-        const titleMatch = i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/title>/);
-        const linkMatch = i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:]]>)?<\/link>/);
+
+        const titleMatch = i.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
+        const linkMatch  = i.match(/<link>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/) ||
+                           i.match(/<link\s+href="([^"]+)"/);
+
+        const title = titleMatch ? titleMatch[1].trim() : "AI Strategic Update";
+        let link = "#";
+        if (linkMatch) {
+            link = linkMatch[1].trim();
+            // Bəzi RSS-lərdə link boş xətt kimi gəlir, növbəti ehtimal:
+            if (!link || link.length < 5) {
+                const altMatch = i.match(/<guid[^>]*>(?:<!\[CDATA\[)?(https?:\/\/[^\s<]+)/);
+                if (altMatch) link = altMatch[1].trim();
+            }
+        }
+
         return {
-            title: titleMatch ? titleMatch[1].trim() : "AI Strategic Update",
-            link: linkMatch ? linkMatch[1].trim() : "#",
+            title,
+            link,
             source: new URL(url).hostname
         };
-    } catch (e) { return null; }
+    } catch (e) {
+        console.warn(`⚠️ Mənbə əlçatmaz: ${url} — ${e.message}`);
+        return null;
+    }
 }
 
 async function deepAnalyze(news) {
-    console.log(`🧠 Analiz cəhdi: ${news.source} | ${news.title.substring(0, 20)}...`);
-    
-    // Pulsuz paket (15 RPM) üçün ciddi fasilə
-    await sleep(6500);
+    console.log(`🧠 Analiz: ${news.source} | ${news.title.substring(0, 50)}...`);
+    await sleep(5000);
 
-    // Hər xəbər üçün modelləri ardıcıl yoxlayırıq ki, mütləq biri cavab versin
     for (const modelName of POSSIBLE_MODELS) {
         try {
-            const model = genAI.getGenerativeModel({ 
+            const model = genAI.getGenerativeModel({
                 model: modelName,
                 safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                    { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH",        threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",  threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT",  threshold: "BLOCK_NONE" }
                 ]
             });
 
-            const result = await model.generateContent(`Analyze this AI news title: "${news.title}". Provide 3 short executive bullet points in English.`);
-            const response = await result.response;
-            const text = response.text();
-            
-            if (text) return text;
+            const result = await model.generateContent(
+                `Analyze this AI news title: "${news.title}". Provide 3 short executive bullet points in English.`
+            );
+            const text = result.response.text();
+            if (text) {
+                console.log(`✅ ${modelName} ilə analiz uğurlu.`);
+                return text;
+            }
         } catch (err) {
-            // Əgər xəta 404-dürsə, növbəti modeli yoxla
+            console.error(`❌ ${modelName} xəta: ${err.message}`);
             if (err.message.includes("404") || err.message.includes("not found")) {
-                console.warn(`⚠️ ${modelName} tapılmadı, növbəti variant yoxlanılır...`);
                 continue;
             }
-            console.error(`❌ ${modelName} üçün xəta:`, err.message);
         }
     }
-    return "Analysis unavailable: All model variants failed or were blocked.";
+    return "Analysis unavailable.";
 }
 
 async function createMassivePDF(results) {
@@ -116,19 +133,35 @@ async function createMassivePDF(results) {
         const doc = new PDFDocument({ margin: 40, size: 'A4' });
         const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
-        
+
         // Header
         doc.rect(0, 0, 612, 120).fill('#001F3F');
         doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL INTELLIGENCE HUB', 40, 45);
-        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`MULTI-NODE SYNC | ${new Date().toDateString()}`, 40, 75);
+        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9')
+           .text(`MULTI-NODE SYNC | ${new Date().toDateString()}`, 40, 75);
 
         results.forEach((n, i) => {
             if (i % 2 === 0 && i !== 0) doc.addPage();
             doc.moveDown(i % 2 === 0 ? 5 : 2);
-            doc.fillColor('#001F3F').fontSize(14).font('Helvetica-Bold').text(`${i + 1}. [${n.source.toUpperCase()}]`);
-            doc.fontSize(10).fillColor('#333333').font('Helvetica-Bold').text(n.title);
-            doc.moveDown(0.5).fontSize(10).fillColor('#444444').font('Helvetica').text(n.analysis, { align: 'justify' });
-            doc.moveDown(1).moveTo(40, doc.y).lineTo(572, doc.y).strokeColor('#EEEEEE').stroke();
+
+            doc.fillColor('#001F3F').fontSize(14).font('Helvetica-Bold')
+               .text(`${i + 1}. [${n.source.toUpperCase()}]`);
+
+            doc.fontSize(10).fillColor('#333333').font('Helvetica-Bold')
+               .text(n.title);
+
+            // Link
+            if (n.link && n.link !== '#') {
+                doc.fontSize(9).fillColor('#1a73e8').font('Helvetica')
+                   .text(n.link, { link: n.link, underline: true });
+            }
+
+            doc.moveDown(0.5).fontSize(10).fillColor('#444444').font('Helvetica')
+               .text(n.analysis, { align: 'justify' });
+
+            doc.moveDown(1)
+               .moveTo(40, doc.y).lineTo(572, doc.y)
+               .strokeColor('#EEEEEE').stroke();
         });
 
         doc.end();
@@ -140,11 +173,9 @@ async function createMassivePDF(results) {
 async function startMasterCycle() {
     console.log("🚀 OpenClew Global Sync Initializing...");
     try {
-        const fetchPromises = SOURCES.map(url => fetchFromSource(url));
-        const rawResults = await Promise.all(fetchPromises);
+        const rawResults = await Promise.all(SOURCES.map(fetchFromSource));
         const validNews = rawResults.filter(n => n !== null);
-        
-        console.log(`✅ ${validNews.length} mənbəyə giriş təmin olundu.`);
+        console.log(`✅ ${validNews.length} mənbədən xəbər alındı.`);
 
         const fullData = [];
         for (const n of validNews) {
@@ -153,21 +184,33 @@ async function startMasterCycle() {
         }
 
         const reportPath = await createMassivePDF(fullData);
+        console.log(`📄 PDF hazırlandı: ${reportPath}`);
+
         const transporter = nodemailer.createTransport({
             service: 'gmail',
-            auth: { user: CONFIG.RECIPIENT, pass: CONFIG.EMAIL_PASS }
+            auth: {
+                user: CONFIG.RECIPIENT,
+                pass: CONFIG.EMAIL_PASS
+            }
         });
 
         await transporter.sendMail({
             from: `"OpenClew Hub" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
             subject: `🌍 GLOBAL AI REPORT — ${new Date().toLocaleDateString()}`,
-            html: `<h3>Zöhrab Bey,</h3><p>Report has been generated using <b>Gemini Multi-Model Fallback</b> system.</p>`,
-            attachments: [{ filename: 'Global_Intelligence_Report.pdf', path: reportPath }]
+            html: `<h3>Zöhrab Bey,</h3>
+                   <p>Bugünkü AI hesabatı hazırdır.</p>
+                   <p><b>Mənbə sayı:</b> ${fullData.length}</p>
+                   <p><b>Tarix:</b> ${new Date().toDateString()}</p>`,
+            attachments: [{
+                filename: 'Global_Intelligence_Report.pdf',
+                path: reportPath
+            }]
         });
-        console.log("🏁 Proses uğurla başa çatdı.");
+
+        console.log("🏁 Proses uğurla başa çatdı. Email göndərildi.");
     } catch (err) {
-        console.error("❌ Kritik Failure:", err.message);
+        console.error("❌ Kritik xəta:", err.message);
         process.exit(1);
     }
 }
