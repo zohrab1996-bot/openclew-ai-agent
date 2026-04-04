@@ -2,7 +2,7 @@ name: OpenClew Daily Report
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 4 * * *' # Hər gün Bakı vaxtı ilə səhər 8:00 (UTC 4:00)
 
 jobs:
   report:
@@ -22,5 +22,6 @@ jobs:
       - name: Agent-i işə sal
         run: node index.mjs
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # BURADA DƏYİŞİKLİK ETDİK:
+          API_KEY: ${{ secrets.GEMINI_API_KEY }} 
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
