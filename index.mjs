@@ -7,7 +7,7 @@ import path from 'path';
 
 // --- [CONFIG] ---
 const CONFIG = {
-    API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyA4M5c2vWkhCgUeh9V6n8b6bXqDwLwBy_U',
+    API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyD_9bm5LyXN2jx0qIF8q1VO95B2QAuEFLo',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
     IDENTITY: "OpenClew Global Intelligence v10.0",
