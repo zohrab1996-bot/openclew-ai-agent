@@ -1,5 +1,5 @@
 import axios from 'axios';
-import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from "@google/generative-ai"; // Groq yerinə Gemini SDK
 import nodemailer from 'nodemailer';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
@@ -7,14 +7,17 @@ import path from 'path';
 
 // --- [ULTRA-SCALE CONFIG] ---
 const CONFIG = {
-    API_KEY: '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',
+    // Sizin təqdim etdiyiniz Gemini API açarı
+    API_KEY: 'AIzaSyAkN29GiV31NDJxNtSLOj4c5dZXDojosFA', 
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
-    IDENTITY: "OpenClew Global Intelligence v10.0 (Full Node Sync)",
+    IDENTITY: "OpenClew Global Intelligence v10.0 (Gemini 1.5 Flash Node)",
     PDF_PATH: path.resolve('./Full_Strategic_Intelligence_Report.pdf')
 };
 
-const groq = new Groq({ apiKey: CONFIG.API_KEY });
+// Gemini-ni inisializasiya edirik
+const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // --- [ALL 30 GLOBAL SOURCES] ---
 const SOURCES = [
@@ -54,7 +57,7 @@ const SOURCES = [
 
 async function fetchFromSource(url) {
     try {
-        const res = await axios.get(url, { timeout: 8000 });
+        const res = await axios.get(url, { timeout: 10000 });
         const items = res.data.split('<item>').slice(1, 2);
         if (items.length === 0) return null;
 
@@ -73,7 +76,7 @@ async function fetchFromSource(url) {
 }
 
 async function deepAnalyze(news) {
-    console.log(`🧠 High-Velocity Analysis: ${news.title.substring(0, 35)}...`);
+    console.log(`🧠 Gemini 1.5 Flash Analysis: ${news.title.substring(0, 35)}...`);
     const prompt = `As an Executive AI Advisor, analyze this news from ${news.source}: "${news.title}".
     Provide exactly 3 bullet points:
     1. GLOBAL IMPACT: Market significance.
@@ -82,14 +85,13 @@ async function deepAnalyze(news) {
     Language: English. Professional.`;
 
     try {
-        const res = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.1
-        });
-        return res.choices[0].message.content;
+        // Gemini API üçün sorğu formatı
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text();
     } catch (err) {
-        return "Analysis skipped due to high-volume throughput limits.";
+        console.error(`Gemini Error on ${news.source}:`, err.message);
+        return "Analysis skipped due to API throughput or safety limits.";
     }
 }
 
@@ -102,10 +104,9 @@ async function createMassivePDF(results) {
         // Professional Navy Header
         doc.rect(0, 0, 612, 120).fill('#001F3F');
         doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL INTELLIGENCE HUB', 40, 45);
-        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`30-NODE FULL SYNC REPORT | v10.0 | ${new Date().toDateString()}`, 40, 75);
+        doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9').text(`GEMINI 1.5 FLASH SYNC | v10.0 | ${new Date().toDateString()}`, 40, 75);
 
         results.forEach((n, i) => {
-            // Hər səhifədə 2 xəbər yerləşdiririk ki, PDF çox uzun olmasın (cəmi ~15 səhifə)
             if (i % 2 === 0 && i !== 0) doc.addPage();
             
             doc.moveDown(i % 2 === 0 ? 5 : 2);
@@ -127,23 +128,21 @@ async function createMassivePDF(results) {
 }
 
 async function startMasterCycle() {
-    console.log("🚀 Initializing 30-Node Global Intelligence Sync...");
+    console.log("🚀 Initializing 30-Node Intelligence Sync via Gemini 1.5 Flash...");
     try {
-        // Step 1: Parallel Fetching (Bütün mənbələrə eyni anda sorğu göndəririk)
         const fetchPromises = SOURCES.map(url => fetchFromSource(url));
         const rawResults = await Promise.all(fetchPromises);
         const validNews = rawResults.filter(n => n !== null);
 
         console.log(`✅ Success: ${validNews.length}/${SOURCES.length} nodes responded.`);
 
-        // Step 2: Sequential Analysis (Rate-limit qoruması üçün analizlər növbəli gedir)
         const fullData = [];
+        // Gemini Free Tier RPM (dəqiqədə 15 sorğu) limitini aşmamaq üçün kiçik fasilə (delay) lazımdırsa bura əlavə edilə bilər.
         for (const n of validNews) {
             const analysis = await deepAnalyze(n);
             fullData.push({ ...n, analysis });
         }
 
-        // Step 3: PDF & Email
         const reportPath = await createMassivePDF(fullData);
 
         const transporter = nodemailer.createTransport({
@@ -154,9 +153,9 @@ async function startMasterCycle() {
         await transporter.sendMail({
             from: `"OpenClew Global Hub" <${CONFIG.RECIPIENT}>`,
             to: CONFIG.RECIPIENT,
-            subject: `🌍 FULL GLOBAL SYNC REPORT — ${new Date().toLocaleDateString()}`,
-            html: `<h3>Zöhrab Bey,</h3><p>The system has successfully synchronized with <b>${validNews.length} active intelligence nodes</b> across the globe.</p><p>This comprehensive report contains the latest strategic updates from 30+ industry leaders.</p>`,
-            attachments: [{ filename: 'Global_Intelligence_Full_Sync.pdf', path: reportPath }]
+            subject: `🌍 GEMINI GLOBAL SYNC REPORT — ${new Date().toLocaleDateString()}`,
+            html: `<h3>Zöhrab Bey,</h3><p>The system has successfully synchronized with <b>${validNews.length} active nodes</b> using <b>Gemini 1.5 Flash</b>.</p><p>Latest strategic intelligence report is attached.</p>`,
+            attachments: [{ filename: 'Global_Intelligence_Gemini_Report.pdf', path: reportPath }]
         });
 
         console.log("🏁 Global Mission Accomplished.");
