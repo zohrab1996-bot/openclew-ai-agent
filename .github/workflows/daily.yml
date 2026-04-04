@@ -1,4 +1,5 @@
 name: OpenClew Daily Report
+
 on:
   workflow_dispatch:
   schedule:
@@ -22,6 +23,5 @@ jobs:
       - name: Agent-i işə sal
         run: node index.mjs
         env:
-          # BURADA DƏYİŞİKLİK ETDİK:
-          API_KEY: ${{ secrets.GEMINI_API_KEY }} 
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
