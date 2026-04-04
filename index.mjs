@@ -7,17 +7,12 @@ import path from 'path';
 
 // --- [CONFIG] ---
 const CONFIG = {
-    API_KEY: process.env.GEMINI_API_KEY,
+    API_KEY: process.env.GEMINI_API_KEY || 'AIzaSyA4M5c2vWkhCgUeh9V6n8b6bXqDwLwBy_U',
     RECIPIENT: 'zohrab.rza@gmail.com',
     EMAIL_PASS: process.env.EMAIL_PASS,
     IDENTITY: "OpenClew Global Intelligence v10.0",
     PDF_PATH: path.resolve('./Full_Strategic_Intelligence_Report.pdf')
 };
-
-if (!CONFIG.API_KEY) {
-    console.error("❌ GEMINI_API_KEY tapılmadı! GitHub Secrets-i yoxla.");
-    process.exit(1);
-}
 
 const genAI = new GoogleGenerativeAI(CONFIG.API_KEY);
 
@@ -76,18 +71,13 @@ async function fetchFromSource(url) {
         let link = "#";
         if (linkMatch) {
             link = linkMatch[1].trim();
-            // Bəzi RSS-lərdə link boş xətt kimi gəlir, növbəti ehtimal:
             if (!link || link.length < 5) {
                 const altMatch = i.match(/<guid[^>]*>(?:<!\[CDATA\[)?(https?:\/\/[^\s<]+)/);
                 if (altMatch) link = altMatch[1].trim();
             }
         }
 
-        return {
-            title,
-            link,
-            source: new URL(url).hostname
-        };
+        return { title, link, source: new URL(url).hostname };
     } catch (e) {
         console.warn(`⚠️ Mənbə əlçatmaz: ${url} — ${e.message}`);
         return null;
@@ -103,10 +93,10 @@ async function deepAnalyze(news) {
             const model = genAI.getGenerativeModel({
                 model: modelName,
                 safetySettings: [
-                    { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH",        threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",  threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT",  threshold: "BLOCK_NONE" }
+                    { category: "HARM_CATEGORY_HARASSMENT",       threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
                 ]
             });
 
@@ -134,7 +124,6 @@ async function createMassivePDF(results) {
         const stream = fs.createWriteStream(CONFIG.PDF_PATH);
         doc.pipe(stream);
 
-        // Header
         doc.rect(0, 0, 612, 120).fill('#001F3F');
         doc.fillColor('#FFFFFF').fontSize(26).font('Helvetica-Bold').text('GLOBAL INTELLIGENCE HUB', 40, 45);
         doc.fontSize(10).font('Helvetica').fillColor('#3A9AD9')
@@ -150,7 +139,6 @@ async function createMassivePDF(results) {
             doc.fontSize(10).fillColor('#333333').font('Helvetica-Bold')
                .text(n.title);
 
-            // Link
             if (n.link && n.link !== '#') {
                 doc.fontSize(9).fillColor('#1a73e8').font('Helvetica')
                    .text(n.link, { link: n.link, underline: true });
